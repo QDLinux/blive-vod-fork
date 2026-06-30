@@ -2,8 +2,7 @@
 """
 网易云搜索模块 - 搜索歌曲并返回第一首的元数据，供 LX Music music/play 使用
 """
-import aiohttp
-from search_common import USER_AGENT, build_keyword, format_interval, run_search
+from search_common import build_keyword, format_interval, run_search, make_result, fetch_json
 
 WY_SEARCH_URL = "https://music.163.com/api/search/get/web"
 
@@ -23,23 +22,13 @@ async def search_wy(keyword: str, page: int = 1, pagesize: int = 5) -> list:
         "limit": pagesize,
     }
     headers = {
-        "User-Agent": USER_AGENT,
         "Referer": "https://music.163.com/",
         "Content-Type": "application/x-www-form-urlencoded",
     }
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            WY_SEARCH_URL,
-            data=data,
-            headers=headers,
-        ) as resp:
-            if resp.status != 200:
-                return []
-            result = await resp.json(content_type=None)
-            if result.get("code") != 200:
-                return []
-            songs = result.get("result", {}).get("songs", [])
-            return songs
+    result = await fetch_json("POST", WY_SEARCH_URL, data=data, headers=headers)
+    if not result or result.get("code") != 200:
+        return []
+    return result.get("result", {}).get("songs", [])
 
 
 def parse_wy_song(song: dict) -> dict:
@@ -50,15 +39,15 @@ def parse_wy_song(song: dict) -> dict:
     # 歌手可能是数组
     artists = song.get("artists", [])
     singer = "/".join(a.get("name", "") for a in artists) if artists else ""
-    album = song.get("album", {})
-    album_name = album.get("name", "") if album else ""
-    album_id = album.get("id", "") if album else ""
+    album = song.get("album") or {}
+    album_name = album.get("name", "")
+    album_id = album.get("id", "")
     song_id = song.get("id", "")
-    song_duration = song.get("duration", 0)  # 毫秒
-    img = album.get("picUrl", "") if album else ""
+    song_duration = song.get("duration") or 0  # 毫秒，可能为 None
+    img = album.get("picUrl", "")
 
     # 格式化时长 毫秒 -> mm:ss
-    interval = format_interval(song_duration // 1000)
+    interval = format_interval(song_duration / 1000)
 
     # 构建 types 数组
     types = [
@@ -67,18 +56,17 @@ def parse_wy_song(song: dict) -> dict:
         {"type": "flac", "size": ""},
     ]
 
-    return {
-        "source": "wy",
-        "name": song_name,
-        "singer": singer,
-        "songmid": str(song_id),  # wy用歌曲id作为songmid
-        "img": img,
-        "albumId": str(album_id) if album_id else "",
-        "interval": interval,
-        "albumName": album_name,
-        "types": types,
-        "hash": "",  # wy不需要hash
-    }
+    return make_result(
+        source="wy",
+        name=song_name,
+        singer=singer,
+        songmid=str(song_id),  # wy用歌曲id作为songmid
+        img=img,
+        albumId=str(album_id) if album_id else "",
+        interval=interval,
+        albumName=album_name,
+        types=types,
+    )
 
 
 async def search_and_get_first(name: str, singer: str = "") -> dict | None:

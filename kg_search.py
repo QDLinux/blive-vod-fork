@@ -2,8 +2,7 @@
 """
 酷狗搜索模块 - 搜索歌曲并返回第一首的元数据，供 LX Music music/play 使用
 """
-import aiohttp
-from search_common import USER_AGENT, build_keyword, format_interval, run_search
+from search_common import build_keyword, format_interval, run_search, make_result, fetch_json
 
 KG_SEARCH_URL = "http://mobilecdn.kugou.com/api/v3/search/song"
 
@@ -23,17 +22,10 @@ async def search_kg(keyword: str, page: int = 1, pagesize: int = 5) -> list:
         "pagesize": pagesize,
         "showtype": 1,
     }
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            KG_SEARCH_URL,
-            params=params,
-            headers={"User-Agent": USER_AGENT},
-        ) as resp:
-            if resp.status != 200:
-                return []
-            data = await resp.json(content_type=None)
-            songs = data.get("data", {}).get("info", [])
-            return songs
+    data = await fetch_json("GET", KG_SEARCH_URL, params=params)
+    if not data:
+        return []
+    return data.get("data", {}).get("info", [])
 
 
 def parse_kg_song(song: dict) -> dict:
@@ -65,18 +57,18 @@ def parse_kg_song(song: dict) -> dict:
     if not types:
         types.append({"type": "128k", "size": "", "hash": hash_value})
 
-    return {
-        "source": "kg",
-        "name": song_name,
-        "singer": singer,
-        "songmid": hash_value,  # kg用hash作为songmid
-        "img": img,
-        "albumId": str(album_id) if album_id else "",
-        "interval": interval,
-        "albumName": album_name,
-        "types": types,
-        "hash": hash_value,
-    }
+    return make_result(
+        source="kg",
+        name=song_name,
+        singer=singer,
+        songmid=hash_value,  # kg用hash作为songmid
+        img=img,
+        albumId=str(album_id) if album_id else "",
+        interval=interval,
+        albumName=album_name,
+        types=types,
+        hash=hash_value,
+    )
 
 
 async def search_and_get_first(name: str, singer: str = "") -> dict | None:

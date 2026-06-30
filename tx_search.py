@@ -2,8 +2,7 @@
 """
 QQ音乐搜索模块 - 搜索歌曲并返回第一首的元数据，供 LX Music music/play 使用
 """
-import aiohttp
-from search_common import USER_AGENT, build_keyword, format_interval, run_search
+from search_common import build_keyword, format_interval, run_search, make_result, fetch_json
 
 TX_SEARCH_URL = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
 
@@ -25,21 +24,11 @@ async def search_tx(keyword: str, page: int = 1, pagesize: int = 5) -> list:
         "ct": 24,
         "platform": "yqq.json",
     }
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Referer": "https://y.qq.com/",
-    }
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            TX_SEARCH_URL,
-            params=params,
-            headers=headers,
-        ) as resp:
-            if resp.status != 200:
-                return []
-            result = await resp.json(content_type=None)
-            songs = result.get("data", {}).get("song", {}).get("list", [])
-            return songs
+    headers = {"Referer": "https://y.qq.com/"}
+    result = await fetch_json("GET", TX_SEARCH_URL, params=params, headers=headers)
+    if not result:
+        return []
+    return result.get("data", {}).get("song", {}).get("list", [])
 
 
 def parse_tx_song(song: dict) -> dict:
@@ -76,19 +65,18 @@ def parse_tx_song(song: dict) -> dict:
     if not types:
         types.append({"type": "128k", "size": ""})
 
-    return {
-        "source": "tx",
-        "name": song_name,
-        "singer": singer,
-        "songmid": songmid,  # tx用songmid
-        "img": img,
-        "albumId": str(album_id) if album_id else "",
-        "interval": interval,
-        "albumName": album_name,
-        "types": types,
-        "hash": "",  # tx不需要hash
-        "strMediaMid": str_media_mid,  # tx必传
-    }
+    return make_result(
+        source="tx",
+        name=song_name,
+        singer=singer,
+        songmid=songmid,  # tx用songmid
+        img=img,
+        albumId=str(album_id) if album_id else "",
+        interval=interval,
+        albumName=album_name,
+        types=types,
+        strMediaMid=str_media_mid,  # tx必传
+    )
 
 
 async def search_and_get_first(name: str, singer: str = "") -> dict | None:

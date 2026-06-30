@@ -9,8 +9,6 @@ import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 _server = None
-_qr_url = ""
-_login_done = False
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -116,9 +114,12 @@ class QRHandler(BaseHTTPRequestHandler):
     """处理二维码页面请求"""
 
     def do_GET(self):
+        # 状态绑定在 server 实例上，避免新旧服务器共享模块级全局
+        qr_url = getattr(self.server, "qr_url", "")
+        login_done = getattr(self.server, "login_done", False)
         if self.path == "/" or self.path == "/qr":
             # 对URL进行JavaScript字符串转义
-            escaped_url = _qr_url.replace("\\", "\\\\").replace("'", "\\'").replace("&", "\\x26")
+            escaped_url = qr_url.replace("\\", "\\\\").replace("'", "\\'").replace("&", "\\x26")
             html = HTML_TEMPLATE.replace("{qr_url_escaped}", escaped_url)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -130,7 +131,7 @@ class QRHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            self.wfile.write(b"done" if _login_done else b"waiting")
+            self.wfile.write(b"done" if login_done else b"waiting")
         elif self.path == "/close":
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
@@ -153,28 +154,33 @@ def show_qr_page(qr_url: str, port: int = 19820):
     :param qr_url: B站登录二维码URL
     :param port: 本地服务器端口（被占用时自动尝试后续端口）
     """
-    global _server, _qr_url, _login_done
-    _qr_url = qr_url
-    _login_done = False  # 重置登录状态，避免上一轮残留导致页面提前关闭
+    global _server
+    _server = None  # 重置，避免端口全失败时残留旧引用绕过下方判空
 
     # 端口被占用时，依次尝试后续端口
     last_err = None
     bound_port = None
+    server = None
     for p in range(port, port + 10):
         try:
-            _server = HTTPServer(("127.0.0.1", p), QRHandler)
+            server = HTTPServer(("127.0.0.1", p), QRHandler)
             bound_port = p
             break
         except OSError as e:
             last_err = e
             continue
-    if _server is None:
+    if server is None:
         print(f"[登录] 启动二维码页面服务器失败: {last_err}")
         print(f"[登录] 请手动复制链接到浏览器打开:\n{qr_url}")
         return
 
+    # 状态绑定在 server 实例上（新旧服务器互不干扰）
+    server.qr_url = qr_url
+    server.login_done = False
+    _server = server
+
     # 在后台线程运行服务器
-    server_thread = threading.Thread(target=_server.serve_forever, daemon=True)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
     # 自动打开浏览器
@@ -184,11 +190,13 @@ def show_qr_page(qr_url: str, port: int = 19820):
 
 def close_qr_page():
     """通知页面关闭标签页，然后停止服务器（非阻塞，不卡事件循环）"""
-    global _server, _login_done
-    _login_done = True
+    global _server
     server = _server
+    _server = None
     if server is None:
         return
+    # 仅标记当前 server，避免影响后续新建的服务器
+    server.login_done = True
 
     def _delayed_shutdown():
         # 等待2秒让前端轮询到 done 并执行 window.close()
@@ -201,4 +209,3 @@ def close_qr_page():
 
     # 在后台线程执行延迟关闭，避免阻塞调用方（asyncio事件循环）
     threading.Thread(target=_delayed_shutdown, daemon=True).start()
-    _server = None

@@ -32,16 +32,16 @@ SEARCH_SOURCES = (
 
 def save_roomid(roomid: str):
     """将房间号写入 config.json"""
+    config_path = get_config_path()
     try:
-        config_path = get_config_path()
         with open(config_path, 'r', encoding='utf-8') as r:
             cfg = json.load(r)
         cfg['roomid'] = roomid
         with open(config_path, 'w', encoding='utf-8') as w:
             json.dump(cfg, w, indent=4, ensure_ascii=False)
         print(f"[配置] 房间号 {roomid} 已保存到 config.json")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[警告] 房间号保存失败: {e}")
 
 
 async def main(roomid):
@@ -56,11 +56,11 @@ async def main(roomid):
             save_roomid(roomid)
         if not roomid:
             roomid = input("请输入B站直播间号(回车确认):").strip()
-            if roomid:
-                save_roomid(roomid)
-        if not roomid or not roomid.isdigit():
+        # 校验房间号（必须为纯数字），通过后再保存
+        if not roomid or not roomid.isdecimal():
             print("[错误] 未指定有效的直播间号，程序退出")
             return
+        save_roomid(roomid)
         print(f"[信息] 监听房间号: {roomid}  https://live.bilibili.com/{roomid}")
         await run_single_client(room_id=int(roomid))
     finally:
@@ -145,9 +145,9 @@ if __name__ == '__main__':
     # 获取命令行参数
     roomid = ""
     if len(sys.argv) > 1:
-        roomid = sys.argv[1]  # 位置为1的参数 0是本程序
-    elif data['roomid'] != '':
-        roomid = data['roomid']  # 配置文件中存在roomid则使用配置文件中的roomid
+        roomid = sys.argv[1].strip()  # 位置为1的参数 0是本程序
+    elif data.get('roomid', '').strip():
+        roomid = data['roomid'].strip()  # 配置文件中存在roomid则使用配置文件中的roomid
 
     BlackSong_list = []  # 定义一个空列表用于存储屏蔽词
     # 打开黑名单文件并读取内容
