@@ -1,0 +1,78 @@
+name: Notify Telegram on Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.event.release.tag_name }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Send release notice to Telegram
+        shell: bash
+        env:
+          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["BOT_TOKEN"]
+          chat_id = os.environ["CHAT_ID"]
+          tag = os.environ.get("RELEASE_TAG", "").strip()
+          name = os.environ.get("RELEASE_NAME", "").strip() or tag or "Unnamed release"
+          url = os.environ.get("RELEASE_URL", "").strip()
+          published_at = os.environ.get("RELEASE_PUBLISHED_AT", "").strip()
+          body = os.environ.get("RELEASE_BODY", "").strip()
+
+          if len(body) > 2500:
+              body = body[:2500].rstrip() + "\n..."
+
+          lines = [
+              f"New release: {name}",
+              f"Tag: {tag}" if tag else "Tag: -",
+              f"URL: {url}" if url else "URL: -",
+          ]
+          if published_at:
+              lines.append(f"Published: {published_at}")
+          if body:
+              lines.append("")
+              lines.append(body)
+
+          text = "\n".join(lines)
+
+          data = urllib.parse.urlencode({
+              "chat_id": chat_id,
+              "text": text,
+              "disable_web_page_preview": "true",
+          }).encode("utf-8")
+
+          api = f"https://api.telegram.org/bot{token}/sendMessage"
+          req = urllib.request.Request(api, data=data, method="POST")
+
+          last_error = None
+          for attempt in range(3):
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      resp.read()
+                  print("Telegram notification sent")
+                  break
+              except Exception as e:
+                  last_error = e
+                  if attempt < 2:
+                      time.sleep(2 ** attempt)
+                  else:
+                      raise
+          PY
