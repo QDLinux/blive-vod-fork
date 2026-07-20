@@ -17,6 +17,7 @@ import wy_search
 import tx_search
 import song_handler
 from app_dir import get_config_path, get_blacklist_path
+from app_ui import start_ui
 
 lxmusic = lxmusic.lxmusic()  # 实例化lxmusic类
 
@@ -55,7 +56,8 @@ async def main(roomid):
             print(f"[配置] 使用登录账号的直播间号: {roomid}")
             save_roomid(roomid)
         if not roomid:
-            roomid = input("请输入B站直播间号(回车确认):").strip()
+            roomid = ui.ask_string("直播间", "请输入 B 站直播间号：") if ui else input("请输入B站直播间号(回车确认):")
+            roomid = (roomid or "").strip()
         # 校验房间号（必须为纯数字），通过后再保存
         if not roomid or not roomid.isdecimal():
             print("[错误] 未指定有效的直播间号，程序退出")
@@ -124,16 +126,22 @@ class MyHandler(blivedm.BaseHandler):
             if song_info:
                 print(f'[点歌] {label}找到: {song_info["name"]} - {song_info["singer"]}')
                 # 通过 song_handler 以 searchPlay 方式播放（稍后播放模式）
-                song_handler.play_song(song_info)
+                submitted = song_handler.play_song(song_info)
+                status = "已提交到 LX Music" if submitted else "提交失败，请确认 LX Music 已启动"
+                print(f'[点歌] {status}: {song_info["name"]} - {song_info["singer"]}')
                 return
 
         # 所有源都搜索失败，回退到 searchPlay
         print(f'[点歌] 所有源均无结果，使用默认搜索')
         Scheme_url = lxmusic.music_searchPlay(name=song_name, singer=song_singer, playLater=True)
-        webbrowser.open(url=Scheme_url)
+        submitted = bool(webbrowser.open(url=Scheme_url))
+        status = "已提交到 LX Music" if submitted else "提交失败，请确认 LX Music 已启动"
+        print(f'[点歌] {status}: {song_name} - {song_singer}')
 
 
 if __name__ == '__main__':
+
+    ui = start_ui()
 
     import config
     config.create_config()  # 创建配置文件

@@ -9,6 +9,7 @@ import time
 import hashlib
 import asyncio
 import webbrowser
+import sys
 from typing import Optional, Tuple
 
 import aiohttp
@@ -318,7 +319,13 @@ async def _confirm_account_and_get_room(
 
     uname = user_info["uname"]
     uid = user_info["uid"]
-    choice = input(f"[登录] 检测到账号: {uname} (UID:{uid})，是否使用该账号？(y/n): ").strip().lower()
+    ui = getattr(sys.modules.get("__main__"), "ui", None)
+    if ui is None:
+        ui = getattr(sys.modules.get("main"), "ui", None)
+    if ui is not None:
+        choice = "y" if ui.ask_yes_no("登录确认", f"检测到账号：{uname}\nUID：{uid}\n是否使用此账号？") else "n"
+    else:
+        choice = input(f"[登录] 检测到账号: {uname} (UID:{uid})，是否使用该账号？(y/n): ").strip().lower()
     if choice not in ('y', 'yes', ''):
         # 用户选择不使用该账号，清除cookie，走扫码登录
         print("[登录] 切换账号，准备扫码登录...")

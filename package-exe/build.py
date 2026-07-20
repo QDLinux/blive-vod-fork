@@ -10,7 +10,8 @@ import os
 # 项目根目录（package-exe 的上级目录）
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
-BUILD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build")
+# 使用独立的构建目录，避免旧版管理员权限生成的缓存文件阻塞清理。
+BUILD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build-gui")
 
 def install_pyinstaller():
     """确保 PyInstaller 已安装"""
@@ -36,8 +37,8 @@ def build():
         "--clean",
         # 单文件模式（只生成一个 exe）
         "--onefile",
-        # 控制台程序
-        "--console",
+        # GUI 子系统，不创建 cmd 窗口
+        "--windowed",
         # 程序名
         "--name", "blive-vod",
         # 输出目录

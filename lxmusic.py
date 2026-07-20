@@ -14,7 +14,6 @@ class lxmusic:
         url = f'lxmusic://{url}'
         if data:
             url = url + '?data=' + quote(f'{json.dumps(data, ensure_ascii=False)}')
-        print("编码后的url:", url)
         return url
 
     def songlist_open(self, source="", id="", url=""):

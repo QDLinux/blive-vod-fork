@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1>Blive-Vod</h1>
+<h1>Blive-Vod v2.15</h1>
 <h1>阿B直播弹幕点歌机</h1>
 
 </div>
