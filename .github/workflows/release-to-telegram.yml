@@ -59,6 +59,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$env:RELEASE_TAG" package-exe/dist/blive-vod.exe --repo "$env:GITHUB_REPOSITORY" --clobber
 
+      - name: Store executable for Telegram
+        uses: actions/upload-artifact@v4
+        with:
+          name: blive-vod-${{ github.event.release.tag_name || inputs.release_tag }}
+          path: package-exe/dist/blive-vod.exe
+          if-no-files-found: error
+          retention-days: 1
+
   notify:
     runs-on: ubuntu-latest
     needs: build-and-upload
@@ -67,7 +75,13 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Send release notice to Telegram
+      - name: Download executable
+        uses: actions/download-artifact@v4
+        with:
+          name: blive-vod-${{ github.event.release.tag_name || inputs.release_tag }}
+          path: release-assets
+
+      - name: Send release executable to Telegram
         shell: bash
         env:
           BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
@@ -81,8 +95,9 @@ jobs:
           python - <<'PY'
           import os
           import time
-          import urllib.parse
           import urllib.request
+          import uuid
+          from pathlib import Path
 
           token = os.environ["BOT_TOKEN"]
           chat_id = os.environ["CHAT_ID"]
@@ -91,9 +106,13 @@ jobs:
           url = os.environ.get("RELEASE_URL", "").strip()
           published_at = os.environ.get("RELEASE_PUBLISHED_AT", "").strip()
           body = os.environ.get("RELEASE_BODY", "").strip()
+          executable = Path("release-assets/blive-vod.exe")
 
-          if len(body) > 2500:
-              body = body[:2500].rstrip() + "\n..."
+          if not executable.is_file():
+              raise FileNotFoundError(f"Telegram attachment not found: {executable}")
+
+          if len(body) > 650:
+              body = body[:650].rstrip() + "\n..."
 
           lines = [
               f"New release: {name}",
@@ -106,23 +125,46 @@ jobs:
               lines.append("")
               lines.append(body)
 
-          text = "\n".join(lines)
+          caption = "\n".join(lines)
+          if len(caption) > 1024:
+              caption = caption[:1020].rstrip() + "\n..."
 
-          data = urllib.parse.urlencode({
-              "chat_id": chat_id,
-              "text": text,
-              "disable_web_page_preview": "true",
-          }).encode("utf-8")
+          boundary = f"----CodexBoundary{uuid.uuid4().hex}"
+          chunks = []
 
-          api = f"https://api.telegram.org/bot{token}/sendMessage"
-          req = urllib.request.Request(api, data=data, method="POST")
+          def add_field(name, value):
+              chunks.extend([
+                  f"--{boundary}\r\n".encode(),
+                  f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
+                  value.encode("utf-8"),
+                  b"\r\n",
+              ])
+
+          add_field("chat_id", chat_id)
+          add_field("caption", caption)
+          chunks.extend([
+              f"--{boundary}\r\n".encode(),
+              b'Content-Disposition: form-data; name="document"; filename="blive-vod.exe"\r\n',
+              b"Content-Type: application/vnd.microsoft.portable-executable\r\n\r\n",
+              executable.read_bytes(),
+              b"\r\n",
+              f"--{boundary}--\r\n".encode(),
+          ])
+
+          api = f"https://api.telegram.org/bot{token}/sendDocument"
+          req = urllib.request.Request(
+              api,
+              data=b"".join(chunks),
+              headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+              method="POST",
+          )
 
           last_error = None
           for attempt in range(3):
               try:
-                  with urllib.request.urlopen(req, timeout=20) as resp:
+                  with urllib.request.urlopen(req, timeout=120) as resp:
                       resp.read()
-                  print("Telegram notification sent")
+                  print("Telegram executable sent")
                   break
               except Exception as e:
                   last_error = e
